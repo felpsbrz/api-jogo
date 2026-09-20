@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>🎮 Teste da API do Jogo</title>
+    <style>
+        * { box-sizing: border-box; font-family: Arial, sans-serif; }
+        body { background: #1a1a2e; color: #eee; padding: 20px; max-width: 800px; margin: auto; }
+        h1 { text-align: center; }
+        .card { background: #16213e; border-radius: 10px; padding: 15px; margin: 15px 0; }
+        input { padding: 8px; margin: 4px; border-radius: 5px; border: none; width: 160px; }
+        button { padding: 8px 15px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
+        .criar { background: #4ecca3; }
+        .editar { background: #f5a623; }
+        .renomear { background: #e94560; color: white; }
+        .deletar { background: #c0392b; color: white; }
+        .atualizar { background: #3498db; color: white; }
+        button:hover { opacity: 0.85; }
+        #resultado { background: #0f3460; padding: 15px; border-radius: 10px; white-space: pre-wrap; min-height: 50px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 8px; text-align: left; border-bottom: 1px solid #444; }
+        th { color: #4ecca3; }
+    </style>
+</head>
+<body>
+    <h1>🎮 Painel de Teste da API</h1>
+
+    <div class="card">
+        <h3>➕ Criar jogador</h3>
+        <input id="c_nick" placeholder="Nick">
+        <input id="c_pontos" type="number" placeholder="Pontos" value="0">
+        <input id="c_level" type="number" placeholder="Level" value="1">
+        <button class="criar" onclick="criar()">Criar</button>
+    </div>
+
+    <div class="card">
+        <h3>✏️ Dar pontos / subir level</h3>
+        <input id="e_nick" placeholder="Nick">
+        <input id="e_pontos" type="number" placeholder="Pontos">
+        <input id="e_level" type="number" placeholder="Level">
+        <button class="editar" onclick="editar()">Atualizar</button>
+    </div>
+
+    <div class="card">
+        <h3>🔤 Alterar nick</h3>
+        <input id="r_nick" placeholder="Nick atual">
+        <input id="r_novo" placeholder="Novo nick">
+        <button class="renomear" onclick="renomear()">Renomear</button>
+    </div>
+
+    <div class="card">
+        <h3>🗑️ Deletar jogador</h3>
+        <input id="d_nick" placeholder="Nick">
+        <button class="deletar" onclick="deletar()">Deletar</button>
+    </div>
+
+    <div class="card">
+        <button class="atualizar" onclick="listar()">🔄 Atualizar lista</button>
+        <div id="lista"></div>
+    </div>
+
+    <h3>📋 Resposta da API:</h3>
+    <div id="resultado">Aguardando ação...</div>
+
+    <script>
+        const API = window.location.origin; // usa a própria URL do Render
+
+        function mostrar(dados) {
+            document.getElementById("resultado").textContent =
+                typeof dados === 'string' ? dados : JSON.stringify(dados, null, 2);
+        }
+
+        async function chamar(metodo, rota, corpo) {
+            const opcoes = { method: metodo, headers: {"Content-Type": "application/json"} };
+            if (corpo) opcoes.body = JSON.stringify(corpo);
+            const resp = await fetch(API + rota, opcoes);
+            return await resp.json();
+        }
+
+        async function criar() {
+            const r = await chamar("POST", "/jogadores", {
+                nick: c_nick.value,
+                pontos: parseInt(c_pontos.value),
+                level: parseInt(c_level.value)
+            });
+            mostrar(r); listar();
+        }
+
+        async function editar() {
+            const r = await chamar("PUT", "/jogadores/" + e_nick.value, {
+                nick: e_nick.value,
+                pontos: parseInt(e_pontos.value),
+                level: parseInt(e_level.value)
+            });
+            mostrar(r); listar();
+        }
+
+        async function renomear() {
+            const r = await chamar("PATCH", "/jogadores/" + r_nick.value, {
+                novo_nick: r_novo.value
+            });
+            mostrar(r); listar();
+        }
+
+        async function deletar() {
+            const r = await chamar("DELETE", "/jogadores/" + d_nick.value);
+            mostrar(r); listar();
+        }
+
+        async function listar() {
+            const jogadores = await chamar("GET", "/jogadores");
+            let html = "<table><tr><th>ID</th><th>Nick</th><th>Pontos</th><th>Level</th></tr>";
+            jogadores.forEach(j => {
+                html += `<tr><td>${j.id}</td><td>${j.nick}</td><td>${j.pontos}</td><td>${j.level}</td></tr>`;
+            });
+            html += "</table>";
+            document.getElementById("lista").innerHTML = html;
+        }
+
+        listar(); // carrega a lista ao abrir
+    </script>
+</body>
+</html>

@@ -1,7 +1,15 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 import sqlite3
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app = FastAPI(title="API do Meu Jogo")
 
 # --- BANCO DE DADOS ---
@@ -87,3 +95,27 @@ def deletar_jogador(nick: str):
     conn.commit()
     conn.close()
     return {"msg": "Deletado!"}
+    
+    class Renomear(BaseModel):
+    novo_nick: str
+
+# Alterar o nick de um jogador
+@app.patch("/jogadores/{nick}")
+def renomear(nick: str, data: Renomear):
+    conn = conectar()
+    try:
+        conn.execute(
+            "UPDATE jogadores SET nick = ? WHERE nick = ?",
+            (data.novo_nick, nick)
+        )
+        conn.commit()
+        return {"msg": f"Nick alterado para {data.novo_nick}!"}
+    except sqlite3.IntegrityError:
+        return {"erro": "Esse nick já está em uso!"}
+    finally:
+        conn.close()
+
+# Página de teste
+@app.get("/teste")
+def pagina_teste():
+    return FileResponse("teste.html")
