@@ -1,3 +1,5 @@
 fastapi
 uvicorn[standard]
 psycopg[binary]
+psycopg_pool
+websockets

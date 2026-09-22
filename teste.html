@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>🎮 API Game — Página de Teste</title>
+<title>🎮 API Game — Página de Teste (WebSocket)</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', Arial, sans-serif; }
   body { background: #0d1117; color: #e6edf3; min-height: 100vh; padding: 20px; }
@@ -28,9 +28,12 @@
   th, td { padding: 6px; text-align: left; border-bottom: 1px solid #21262d; }
   th { color: #8b949e; }
   #contador { text-align: center; color: #f0b429; font-weight: bold; margin-bottom: 8px; min-height: 18px; }
+  #latencia { position: fixed; top: 10px; right: 10px; background: #161b22; border: 1px solid #30363d; padding: 8px 12px; border-radius: 8px; font-size: 12px; }
+  .ws-on { color: #3fb950; } .ws-off { color: #f85149; }
 </style>
 </head>
 <body>
+  <div id="latencia">🔴 <span id="latenciaValor">HTTP</span></div>
   <h1>🎮 API Game — Simulador de Jogador</h1>
   <p class="sub">Crie a conta → faça login → ganhe XP/gold/diamantes → resgate recompensas → veja o rank</p>
 
@@ -100,10 +103,84 @@ const API = window.location.origin.includes("localhost") || window.location.prot
   ? "https://api-jogo-1.onrender.com"   // abrindo local/arquivo: aponta para a API no Render
   : window.location.origin;             // servido pelo próprio Render
 
+const WS_API = API.replace("https://", "wss://").replace("http://", "ws://");
+
 let cod_token = localStorage.getItem("cod_token") || "";
 let nick = localStorage.getItem("nick") || "";
 document.getElementById("nickLogin").value = nick;
 document.getElementById("tokenLogin").value = cod_token;
+
+// ==================== WEBSOCKET ====================
+let ws = null;
+let wsLatencia = 0;
+
+function conectarWebSocket() {
+  if (!cod_token || !nick) return;
+
+  const url = `${WS_API}/ws/${cod_token}/${nick}`;
+  log(`🔌 Conectando WebSocket...`, "info");
+
+  ws = new WebSocket(url);
+
+  ws.onopen = () => {
+    document.getElementById("latenciaValor").textContent = "WS: conectado";
+    document.getElementById("latencia").className = "ws-on";
+    log(`✅ WebSocket conectado! Latência real-time ativada.`, "ok");
+    medirLatencia();
+  };
+
+  ws.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+
+    if (msg.tipo === "pong") {
+      wsLatencia = Math.round((Date.now() - msg.dados.timestamp * 1000) / 10) / 100;
+      document.getElementById("latenciaValor").textContent = `WS: ${wsLatencia}ms`;
+    }
+    else if (msg.tipo === "conectado" || msg.tipo === "progresso") {
+      preencherPerfil(msg.dados);
+      log(`📊 Perfil atualizado via WS`, "ok");
+    }
+    else if (msg.tipo === "recompensa") {
+      preencherPerfil(msg.dados.saldo);
+      const moeda = Object.keys(msg.dados.recompensa)[0];
+      log(`🎁 Recompensa via WS: ${msg.dados.recompensa[moeda]} ${moeda}!`, "ok");
+      iniciarContador(600);
+    }
+    else if (msg.tipo === "rank") {
+      mostrarRank(msg.dados.ranking);
+    }
+    else if (msg.tipo === "erro") {
+      log(`❌ Erro WS: ${msg.dados.erro}`, "err");
+    }
+  };
+
+  ws.onclose = () => {
+    document.getElementById("latenciaValor").textContent = "WS: desconectado";
+    document.getElementById("latencia").className = "ws-off";
+    log(`🔌 WebSocket desconectado. Reconectando em 3s...`, "err");
+    setTimeout(conectarWebSocket, 3000);
+  };
+
+  ws.onerror = (e) => {
+    log(`❌ Erro no WebSocket`, "err");
+  };
+}
+
+function medirLatencia() {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({acao: "ping", timestamp: Date.now() / 1000}));
+  }
+  setTimeout(medirLatencia, 2000); // mede a cada 2s
+}
+
+function enviarWS(dados) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(dados));
+    return true;
+  }
+  return false;
+}
+// ==================== FIM WEBSOCKET ====================
 
 function log(msg, cls="info") {
   const el = document.getElementById("log");
@@ -146,6 +223,7 @@ async function criarConta() {
     document.getElementById("nickLogin").value = nick;
     document.getElementById("tokenLogin").value = cod_token;
     preencherPerfil({ nick, level: 1, exp: 0, gold: 0, diamantes: 0, pontos: 0 });
+    conectarWebSocket();
   }
 }
 
@@ -158,6 +236,7 @@ async function fazerLogin() {
     localStorage.setItem("nick", nick);
     preencherPerfil(r);
     log(`🔓 Login feito como ${r.nick}!`, "ok");
+    conectarWebSocket();
   }
 }
 
@@ -173,19 +252,31 @@ function preencherPerfil(u) {
 function auth() { return { cod_token, nick }; }
 
 async function atualizarPerfil() {
-  const r = await api("POST", "/usuarios/login", auth());
-  if (r) preencherPerfil(r);
+  // Tenta via WebSocket primeiro (instantâneo), senão cai no HTTP
+  if (!enviarWS({acao: "ping"})) {
+    const r = await api("POST", "/usuarios/login", auth());
+    if (r) preencherPerfil(r);
+  }
 }
 
 function rnd(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
 
 async function ganhar(tipo) {
   if (!cod_token) return log("Faça login primeiro.", "err");
-  const corpo = { ...auth(), pontos: 0, exp: 0, gold: 0, diamantes: 0 };
+
+  const corpo = { pontos: 0, exp: 0, gold: 0, diamantes: 0 };
   if (tipo === "xp")        { corpo.exp = rnd(10, 50);      corpo.pontos = rnd(5, 25); }
   if (tipo === "gold")      { corpo.gold = rnd(10, 100); }
   if (tipo === "diamantes") { corpo.diamantes = rnd(5, 50); }
-  const r = await api("POST", "/usuarios/progresso", corpo);
+
+  // Tenta WebSocket primeiro (latência <10ms)
+  if (enviarWS({acao: "progresso", ...corpo})) {
+    log(`⚡ Enviado via WebSocket: ${tipo}`, "ok");
+    return;
+  }
+
+  // Fallback HTTP
+  const r = await api("POST", "/usuarios/progresso", { ...auth(), ...corpo });
   if (r) preencherPerfil(r);
 }
 
@@ -197,6 +288,15 @@ async function ganharTudo() {
 let cooldown = null;
 async function resgatarTempo() {
   if (!cod_token) return log("Faça login primeiro.", "err");
+
+  // Tenta WebSocket primeiro
+  if (enviarWS({acao: "recompensa_tempo"})) {
+    log(`⚡ Resgate via WebSocket...`, "ok");
+    iniciarContador(600);
+    return;
+  }
+
+  // Fallback HTTP
   const r = await api("POST", "/recompensas/tempo", auth());
   if (r) {
     preencherPerfil(r.saldo);
@@ -204,7 +304,7 @@ async function resgatarTempo() {
     log(`🎁 Você ganhou ${r.recompensa[moeda]} ${moeda}!`, "ok");
     iniciarContador(600);
   } else {
-    iniciarContador(600); // mesmo com erro, mostra a janela de 10 min
+    iniciarContador(600);
   }
 }
 
@@ -223,20 +323,34 @@ function iniciarContador(segundos) {
   cooldown = setInterval(tick, 1000);
 }
 
-async function verRank(rota) {
-  const r = await api("GET", rota);
-  if (!r) return;
+function mostrarRank(ranking) {
   let html = "<table><tr><th>#</th><th>Nick</th><th>Pontos</th><th>Level</th></tr>";
-  for (const j of r.ranking) {
+  for (const j of ranking) {
     html += `<tr><td>${j.posicao}</td><td>${j.nick}</td><td>${j.pontos}</td><td>${j.level}</td></tr>`;
   }
   html += "</table>";
-  if (!r.ranking.length) html = "<p style='color:#8b949e;font-size:12px;'>Sem jogadores ainda.</p>";
+  if (!ranking.length) html = "<p style='color:#8b949e;font-size:12px;'>Sem jogadores ainda.</p>";
   document.getElementById("rankBox").innerHTML = html;
 }
 
+async function verRank(rota) {
+  // Tenta WebSocket primeiro
+  if (enviarWS({acao: "rank"})) {
+    log(`⚡ Rank via WebSocket...`, "ok");
+    return;
+  }
+
+  // Fallback HTTP
+  const r = await api("GET", rota);
+  if (!r) return;
+  mostrarRank(r.ranking);
+}
+
 log(`Conectado à API: ${API}`, "info");
-if (cod_token && nick) { log("Sessão anterior encontrada — clique em login para carregar.", "info"); }
+if (cod_token && nick) { 
+  log("Sessão anterior encontrada — conectando WebSocket...", "info");
+  conectarWebSocket();
+}
 </script>
 </body>
 </html>

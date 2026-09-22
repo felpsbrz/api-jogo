@@ -7,15 +7,24 @@ import secrets
 from datetime import datetime
 
 import psycopg
+from psycopg_pool import ConnectionPool
 
 # Neon fornece a connection string no dashboard (use a "-pooler" para serverless)
 DATABASE_URL = os.getenv("DATABASE_URL")  # ex: postgresql://user:senha@host-pooler/db?sslmode=require
 
+# Pool: mantém conexões quentes — elimina o tempo de conexão a cada request
+pool = ConnectionPool(
+    conninfo=DATABASE_URL,
+    min_size=1,
+    max_size=10,
+    timeout=5,
+    max_idle=300,
+)
+
 
 def get_conn():
-    conn = psycopg.connect(DATABASE_URL)
-    conn.autocommit = True
-    return conn
+    """Retorna uma conexão do pool (context manager)."""
+    return pool.connection()
 
 
 def init_db():
