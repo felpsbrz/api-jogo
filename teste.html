@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🎮 API Game — Página de Teste</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', Arial, sans-serif; }
+  body { background: #0d1117; color: #e6edf3; min-height: 100vh; padding: 20px; }
+  h1 { text-align: center; margin-bottom: 4px; }
+  .sub { text-align: center; color: #8b949e; font-size: 13px; margin-bottom: 20px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; max-width: 1200px; margin: 0 auto; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 16px; }
+  .card h2 { font-size: 16px; margin-bottom: 12px; color: #58a6ff; }
+  input, button { width: 100%; padding: 10px; margin-bottom: 8px; border-radius: 8px; border: 1px solid #30363d; background: #0d1117; color: #e6edf3; font-size: 14px; }
+  button { background: #238636; border: none; cursor: pointer; font-weight: bold; transition: .15s; }
+  button:hover { background: #2ea043; }
+  button:disabled { background: #30363d; color: #8b949e; cursor: not-allowed; }
+  button.sec { background: #1f6feb; } button.sec:hover { background: #388bfd; }
+  button.warn { background: #9e6a03; } button.warn:hover { background: #bf8700; }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+  .stat { background: #0d1117; border: 1px solid #30363d; border-radius: 8px; padding: 10px; text-align: center; }
+  .stat b { display: block; font-size: 20px; color: #f0b429; }
+  .stat span { font-size: 11px; color: #8b949e; }
+  #log { max-width: 1200px; margin: 16px auto 0; background: #010409; border: 1px solid #30363d; border-radius: 12px; padding: 12px; height: 220px; overflow-y: auto; font-family: monospace; font-size: 12px; }
+  .ok { color: #3fb950; } .err { color: #f85149; } .info { color: #58a6ff; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 6px; text-align: left; border-bottom: 1px solid #21262d; }
+  th { color: #8b949e; }
+  #contador { text-align: center; color: #f0b429; font-weight: bold; margin-bottom: 8px; min-height: 18px; }
+</style>
+</head>
+<body>
+  <h1>🎮 API Game — Simulador de Jogador</h1>
+  <p class="sub">Crie a conta → faça login → ganhe XP/gold/diamantes → resgate recompensas → veja o rank</p>
+
+  <div class="grid">
+    <!-- 1. CRIAR CONTA -->
+    <div class="card">
+      <h2>1️⃣ Criar conta</h2>
+      <input id="nickNovo" placeholder="Escolha um nick">
+      <button onclick="criarConta()">Criar conta</button>
+      <div id="contaCriada" style="font-size:12px;color:#3fb950;word-break:break-all;"></div>
+    </div>
+
+    <!-- 2. LOGIN -->
+    <div class="card">
+      <h2>2️⃣ Login / Recuperar conta</h2>
+      <input id="nickLogin" placeholder="Nick">
+      <input id="tokenLogin" placeholder="cod_token">
+      <button class="sec" onclick="fazerLogin()">Entrar</button>
+    </div>
+
+    <!-- 3. PERFIL -->
+    <div class="card">
+      <h2>👤 Seu jogador</h2>
+      <div class="stats">
+        <div class="stat"><b id="sLevel">–</b><span>LEVEL</span></div>
+        <div class="stat"><b id="sExp">–</b><span>EXP</span></div>
+        <div class="stat"><b id="sGold">–</b><span>GOLD</span></div>
+        <div class="stat"><b id="sDia">–</b><span>DIAMANTES</span></div>
+      </div>
+      <div style="text-align:center;margin-bottom:8px;">
+        <span id="sNick" style="color:#58a6ff;font-weight:bold;">não logado</span> ·
+        <span id="sPontos" style="color:#f0b429;">0 pontos</span>
+      </div>
+      <button class="sec" onclick="atualizarPerfil()">Atualizar perfil</button>
+    </div>
+
+    <!-- 4. JOGAR / GANHAR -->
+    <div class="card">
+      <h2>⚔️ Jogar (ganhar)</h2>
+      <button onclick="ganhar('xp')">🎯 Ganhar XP (10–50)</button>
+      <button onclick="ganhar('gold')">💰 Ganhar Gold (10–100)</button>
+      <button onclick="ganhar('diamantes')">💎 Ganhar Diamantes (5–50)</button>
+      <button class="warn" onclick="ganharTudo()">🚀 Jogar partida completa</button>
+    </div>
+
+    <!-- 5. RECOMPENSA DE TEMPO -->
+    <div class="card">
+      <h2>⏰ Recompensa de tempo (10 min)</h2>
+      <div id="contador"></div>
+      <button class="warn" onclick="resgatarTempo()">Resgatar recompensa</button>
+      <p style="font-size:11px;color:#8b949e;margin-top:6px;">A cada 10 min: 10–100 gold OU 10–100 diamantes (aleatório). O servidor controla o tempo.</p>
+    </div>
+
+    <!-- 6. RANK -->
+    <div class="card">
+      <h2>🏆 Ranking</h2>
+      <button class="sec" onclick="verRank('/rank')">Ranking geral</button>
+      <button class="sec" onclick="verRank('/rank/mes')" style="margin-bottom:8px;">Ranking do mês</button>
+      <div id="rankBox"><p style="color:#8b949e;font-size:12px;">Clique para carregar.</p></div>
+    </div>
+  </div>
+
+  <div id="log"></div>
+
+<script>
+const API = window.location.origin.includes("localhost") || window.location.protocol === "file:"
+  ? "https://api-jogo-1.onrender.com"   // abrindo local/arquivo: aponta para a API no Render
+  : window.location.origin;             // servido pelo próprio Render
+
+let cod_token = localStorage.getItem("cod_token") || "";
+let nick = localStorage.getItem("nick") || "";
+document.getElementById("nickLogin").value = nick;
+document.getElementById("tokenLogin").value = cod_token;
+
+function log(msg, cls="info") {
+  const el = document.getElementById("log");
+  const hora = new Date().toLocaleTimeString();
+  el.innerHTML += `<div class="${cls}">[${hora}] ${msg}</div>`;
+  el.scrollTop = el.scrollHeight;
+}
+
+async function api(metodo, rota, corpo) {
+  log(`${metodo} ${rota} ${corpo ? JSON.stringify(corpo) : ""}`);
+  try {
+    const resp = await fetch(API + rota, {
+      method: metodo,
+      headers: { "Content-Type": "application/json" },
+      body: corpo ? JSON.stringify(corpo) : undefined
+    });
+    const dados = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      log(`❌ Erro ${resp.status}: ${dados.detail || JSON.stringify(dados)}`, "err");
+      return null;
+    }
+    log(`✅ ${JSON.stringify(dados)}`, "ok");
+    return dados;
+  } catch (e) {
+    log(`❌ Falha de rede: ${e.message}`, "err");
+    return null;
+  }
+}
+
+async function criarConta() {
+  const nickNovo = document.getElementById("nickNovo").value.trim();
+  if (!nickNovo) return log("Informe um nick.", "err");
+  const r = await api("POST", "/usuarios/criar", { nick: nickNovo });
+  if (r) {
+    cod_token = r.cod_token; nick = r.nick;
+    localStorage.setItem("cod_token", cod_token);
+    localStorage.setItem("nick", nick);
+    document.getElementById("contaCriada").innerHTML =
+      `Conta criada!<br>cod_token: <b>${cod_token}</b><br>Guarde esse token — ele é sua senha/recuperação.`;
+    document.getElementById("nickLogin").value = nick;
+    document.getElementById("tokenLogin").value = cod_token;
+    preencherPerfil({ nick, level: 1, exp: 0, gold: 0, diamantes: 0, pontos: 0 });
+  }
+}
+
+async function fazerLogin() {
+  nick = document.getElementById("nickLogin").value.trim();
+  cod_token = document.getElementById("tokenLogin").value.trim();
+  const r = await api("POST", "/usuarios/login", { cod_token, nick });
+  if (r) {
+    localStorage.setItem("cod_token", cod_token);
+    localStorage.setItem("nick", nick);
+    preencherPerfil(r);
+    log(`🔓 Login feito como ${r.nick}!`, "ok");
+  }
+}
+
+function preencherPerfil(u) {
+  document.getElementById("sNick").textContent = u.nick;
+  document.getElementById("sLevel").textContent = u.level;
+  document.getElementById("sExp").textContent = u.exp;
+  document.getElementById("sGold").textContent = u.gold;
+  document.getElementById("sDia").textContent = u.diamantes;
+  document.getElementById("sPontos").textContent = `${u.pontos} pontos`;
+}
+
+function auth() { return { cod_token, nick }; }
+
+async function atualizarPerfil() {
+  const r = await api("POST", "/usuarios/login", auth());
+  if (r) preencherPerfil(r);
+}
+
+function rnd(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+
+async function ganhar(tipo) {
+  if (!cod_token) return log("Faça login primeiro.", "err");
+  const corpo = { ...auth(), pontos: 0, exp: 0, gold: 0, diamantes: 0 };
+  if (tipo === "xp")        { corpo.exp = rnd(10, 50);      corpo.pontos = rnd(5, 25); }
+  if (tipo === "gold")      { corpo.gold = rnd(10, 100); }
+  if (tipo === "diamantes") { corpo.diamantes = rnd(5, 50); }
+  const r = await api("POST", "/usuarios/progresso", corpo);
+  if (r) preencherPerfil(r);
+}
+
+async function ganharTudo() {
+  await ganhar("xp"); await ganhar("gold"); await ganhar("diamantes");
+  await atualizarPerfil();
+}
+
+let cooldown = null;
+async function resgatarTempo() {
+  if (!cod_token) return log("Faça login primeiro.", "err");
+  const r = await api("POST", "/recompensas/tempo", auth());
+  if (r) {
+    preencherPerfil(r.saldo);
+    const moeda = Object.keys(r.recompensa)[0];
+    log(`🎁 Você ganhou ${r.recompensa[moeda]} ${moeda}!`, "ok");
+    iniciarContador(600);
+  } else {
+    iniciarContador(600); // mesmo com erro, mostra a janela de 10 min
+  }
+}
+
+function iniciarContador(segundos) {
+  clearInterval(cooldown);
+  let restante = segundos;
+  const el = document.getElementById("contador");
+  const tick = () => {
+    const m = String(Math.floor(restante / 60)).padStart(2, "0");
+    const s = String(restante % 60).padStart(2, "0");
+    el.textContent = restante > 0 ? `⏳ Próxima recompensa em ${m}:${s}` : "✅ Recompensa disponível!";
+    if (restante <= 0) clearInterval(cooldown);
+    restante--;
+  };
+  tick();
+  cooldown = setInterval(tick, 1000);
+}
+
+async function verRank(rota) {
+  const r = await api("GET", rota);
+  if (!r) return;
+  let html = "<table><tr><th>#</th><th>Nick</th><th>Pontos</th><th>Level</th></tr>";
+  for (const j of r.ranking) {
+    html += `<tr><td>${j.posicao}</td><td>${j.nick}</td><td>${j.pontos}</td><td>${j.level}</td></tr>`;
+  }
+  html += "</table>";
+  if (!r.ranking.length) html = "<p style='color:#8b949e;font-size:12px;'>Sem jogadores ainda.</p>";
+  document.getElementById("rankBox").innerHTML = html;
+}
+
+log(`Conectado à API: ${API}`, "info");
+if (cod_token && nick) { log("Sessão anterior encontrada — clique em login para carregar.", "info"); }
+</script>
+</body>
+</html>
