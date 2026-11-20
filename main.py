@@ -1,127 +1,124 @@
-"""
-main.py — API Game (FastAPI) — Render + Neon Postgres.
-Local:   uvicorn main:app --reload
-Render:  uvicorn main:app --host 0.0.0.0 --port $PORT
-"""
+import asyncio
 import time
-from fastapi import FastAPI, HTTPException
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from fastapi.responses import HTMLResponse
+from pydantic import BaseModel, Field
 
-import users
 import rank
-import reward
-import chat
+import users
 
-app = FastAPI(title="API Game", version="1.0.0")
+PAGINA_TESTE = Path(__file__).with_name("teste.html").read_text(encoding="utf-8")
 
-# Libera chamadas do navegador (página de teste / futuro front-end)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    for tentativa in range(5):
+        try:
+            await users.init_db()
+            break
+        except Exception:
+            if tentativa == 4:
+                raise
+            await asyncio.sleep(3)
+    yield
+    await users.close_db()
+
+
+class TempoResposta:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        inicio = time.perf_counter()
+
+        async def enviar(msg):
+            if msg["type"] == "http.response.start":
+                ms = (time.perf_counter() - inicio) * 1000
+                msg.setdefault("headers", []).append((b"x-process-time", f"{ms:.2f}".encode()))
+            await send(msg)
+
+        await self.app(scope, receive, enviar)
+
+
+app = FastAPI(title="API Game", version="2.0.0", lifespan=lifespan, docs_url=None, redoc_url=None)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Process-Time"],
 )
+app.add_middleware(TempoResposta)
 
-@app.on_event("startup")
-def startup():
-    for tentativa in range(5):
-        try:
-            users.init_db()
-            chat.init_chat()
-            return
-        except Exception:
-            if tentativa == 4:
-                raise
-            time.sleep(3)
 
-# ---------- Schemas ----------
 class CriarUsuario(BaseModel):
-    nick: str
+    nick: str = Field(min_length=1, max_length=32)
+
 
 class Auth(BaseModel):
-    """Toda requisição protegida envia cod_token + nick."""
-    cod_token: str
-    nick: str
+    cod_token: str = Field(min_length=1, max_length=64)
+    nick: str = Field(min_length=1, max_length=32)
+
 
 class Progresso(Auth):
-    pontos: int = 0
-    exp: int = 0
-    gold: int = 0
-    diamantes: int = 0
+    pontos: int = Field(0, ge=0, le=1_000_000_000)
+    exp: int = Field(0, ge=0, le=1_000_000_000)
+    gold: int = Field(0, ge=0, le=1_000_000_000)
+    diamantes: int = Field(0, ge=0, le=1_000_000_000)
 
-# ---------- Health ----------
+
 @app.get("/")
-def health():
-    return {"status": "online", "api": "API Game v1.0.0"}
+async def health():
+    return {"status": "online", "api": "API Game v2.0.0"}
 
-# ---------- Páginas de teste ----------
-app.include_router(chat.router)
 
-@app.get("/teste")
-def pagina_teste():
-    return FileResponse("teste.html")
+@app.get("/teste", response_class=HTMLResponse)
+async def pagina_teste():
+    return PAGINA_TESTE
 
-@app.get("/chat_teste")
-def pagina_chat():
-    return FileResponse("chat_teste.html")
 
-# ---------- Usuários ----------
 @app.post("/usuarios/criar")
-def criar(body: CriarUsuario):
-    if users.existe_nick(body.nick):
+async def criar(body: CriarUsuario):
+    nick = body.nick.strip()
+    if not nick:
+        raise HTTPException(422, "Nick inválido.")
+    u = await users.criar_usuario(nick)
+    if not u:
         raise HTTPException(409, "Nick já está em uso.")
-    return users.criar_usuario(body.nick)
+    return u
+
 
 @app.post("/usuarios/login")
-def login(body: Auth):
-    """Login + recuperação de conta: basta cod_token + nick."""
-    u = users.buscar_usuario(body.cod_token, body.nick)
+async def login(body: Auth):
+    u = await users.buscar_usuario(body.cod_token, body.nick)
     if not u:
         raise HTTPException(401, "cod_token ou nick inválidos.")
     return u
 
+
 @app.post("/usuarios/progresso")
-def progresso(body: Progresso):
-    u = users.adicionar_progresso(
+async def progresso(body: Progresso):
+    u = await users.adicionar_progresso(
         body.cod_token, body.nick, body.pontos, body.exp, body.gold, body.diamantes
     )
     if not u:
         raise HTTPException(401, "cod_token ou nick inválidos.")
     return u
 
-# ---------- Rank ----------
+
 @app.get("/rank")
-def rank_geral(limite: int = 10):
-    return {"ranking": rank.ranking_geral(limite)}
+async def rank_geral(limite: int = Query(10, ge=1, le=100)):
+    return {"ranking": await rank.ranking_geral(limite)}
+
 
 @app.get("/rank/mes")
-def rank_mes(limite: int = 10):
-    return {"ranking": rank.ranking_mes(limite)}
-
-# ---------- Recompensas ----------
-@app.post("/recompensas/tempo")
-def rec_tempo(body: Auth):
-    """Resgata a recompensa de tempo logado (a cada 10 min)."""
-    r = reward.recompensa_tempo(body.cod_token, body.nick)
-    if r is None:
-        raise HTTPException(401, "cod_token ou nick inválidos.")
-    if "erro" in r:
-        raise HTTPException(429, r["erro"])
-    return r
-
-@app.post("/recompensas/conceder")
-def rec_conceder(body: Auth, tipo: str):
-    """Concede uma recompensa fixa (ex.: 'top1_mes')."""
-    r = reward.conceder_recompensa(body.cod_token, body.nick, tipo)
-    if r is None:
-        raise HTTPException(401, "cod_token ou nick inválidos.")
-    if "erro" in r:
-        raise HTTPException(400, r["erro"])
-    return r
-
-@app.post("/admin/recompensas/top-mes")
-def admin_top_mes():
-    """Premia o top 3 do mês. Proteja com um header de admin em produção."""
-    return reward.recompensas_top_mes()
+async def rank_mes(limite: int = Query(10, ge=1, le=100)):
+    return {"ranking": await rank.ranking_mes(limite)}

@@ -1,36 +1,63 @@
-"""
-users.py — Configuração do banco (Neon Postgres) e todas as funções de usuário.
-Toda requisição autenticada envia cod_token + nick, que são validados aqui.
-"""
 import os
 import secrets
-from datetime import datetime
 
-import psycopg
-from psycopg_pool import ConnectionPool
+from psycopg_pool import AsyncConnectionPool
 
-# Neon fornece a connection string no dashboard (use a "-pooler" para serverless)
-DATABASE_URL = os.getenv("DATABASE_URL")  # ex: postgresql://user:senha@host-pooler/db?sslmode=require
+DATABASE_URL = os.getenv("DATABASE_URL")
+POOL_MIN = int(os.getenv("DB_POOL_MIN", "2"))
+POOL_MAX = int(os.getenv("DB_POOL_MAX", "10"))
 
-# Pool: mantém conexões quentes — elimina o tempo de conexão a cada request
-pool = ConnectionPool(
-    conninfo=DATABASE_URL,
-    min_size=1,
-    max_size=10,
+pool = AsyncConnectionPool(
+    conninfo=DATABASE_URL or "",
+    min_size=POOL_MIN,
+    max_size=POOL_MAX,
     timeout=5,
     max_idle=300,
+    max_lifetime=1800,
+    check=AsyncConnectionPool.check_connection,
+    kwargs={"autocommit": True, "prepare_threshold": None},
+    open=False,
 )
 
+COLS = "id, cod_token, nick, pontos, level, exp, gold, diamantes, nivel_acesso, status, data_create"
 
-def get_conn():
-    """Retorna uma conexão do pool (context manager)."""
-    return pool.connection()
+SQL_LOGIN = f"SELECT {COLS} FROM usuarios WHERE cod_token = %s AND nick = %s AND status = TRUE"
+
+SQL_CRIAR = """
+INSERT INTO usuarios (cod_token, nick) VALUES (%s, %s)
+ON CONFLICT DO NOTHING
+RETURNING id, cod_token, nick
+"""
+
+SQL_PROGRESSO = f"""
+WITH u AS (
+    SELECT id,
+           50::bigint * (level - 1) * level + exp + %(exp)s::bigint AS total
+    FROM usuarios
+    WHERE cod_token = %(token)s AND nick = %(nick)s AND status = TRUE
+    FOR UPDATE
+),
+l AS (
+    SELECT id, total,
+           floor((1 + sqrt(1 + 4 * total::numeric / 50)) / 2)::int AS lv
+    FROM u
+)
+UPDATE usuarios x
+SET pontos = x.pontos + %(pontos)s::bigint,
+    level = l.lv,
+    exp = l.total - 50::bigint * l.lv * (l.lv - 1),
+    gold = x.gold + %(gold)s::bigint,
+    diamantes = x.diamantes + %(diamantes)s::bigint
+FROM l
+WHERE x.id = l.id
+RETURNING x.{", x.".join(COLS.split(", "))}
+"""
 
 
-def init_db():
-    """Cria as tabelas caso não existam."""
-    with get_conn() as conn:
-        conn.execute("""
+async def init_db():
+    await pool.open(wait=True, timeout=15)
+    async with pool.connection() as conn:
+        await conn.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
             id            BIGSERIAL PRIMARY KEY,
             cod_token     TEXT UNIQUE NOT NULL,
@@ -43,39 +70,17 @@ def init_db():
             nivel_acesso  INT DEFAULT 0,
             status        BOOLEAN DEFAULT TRUE,
             data_create   TIMESTAMP DEFAULT NOW()
-        );
-        """)
-        conn.execute("""
-        CREATE TABLE IF NOT EXISTS reward_log (
-            id          BIGSERIAL PRIMARY KEY,
-            user_id     BIGINT REFERENCES usuarios(id),
-            tipo        TEXT NOT NULL,
-            recompensa  JSONB NOT NULL,
-            data_claim  TIMESTAMP DEFAULT NOW()
-        );
-        """)
-
-
-def gerar_cod_token():
-    """Token único usado para login / recuperação de conta."""
-    return secrets.token_hex(8)  # 16 caracteres hex
-
-
-def existe_nick(nick: str) -> bool:
-    with get_conn() as conn:
-        cur = conn.execute("SELECT 1 FROM usuarios WHERE nick = %s", (nick,))
-        return cur.fetchone() is not None
-
-
-def criar_usuario(nick: str) -> dict:
-    cod = gerar_cod_token()
-    with get_conn() as conn:
-        cur = conn.execute(
-            "INSERT INTO usuarios (cod_token, nick) VALUES (%s, %s) RETURNING id, cod_token, nick",
-            (cod, nick),
         )
-        row = cur.fetchone()
-    return {"id": row[0], "cod_token": row[1], "nick": row[2]}
+        """)
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_usuarios_pontos ON usuarios (pontos DESC) WHERE status = TRUE")
+        try:
+            await conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_usuarios_nick ON usuarios (nick)")
+        except Exception as e:
+            print(f"aviso: indice unico de nick nao criado ({e}); existem nicks duplicados")
+
+
+async def close_db():
+    await pool.close()
 
 
 def _row_to_dict(row) -> dict:
@@ -94,38 +99,33 @@ def _row_to_dict(row) -> dict:
     }
 
 
-_COLS = "id, cod_token, nick, pontos, level, exp, gold, diamantes, nivel_acesso, status, data_create"
+async def criar_usuario(nick: str):
+    for _ in range(3):
+        cod = secrets.token_hex(8)
+        async with pool.connection() as conn:
+            cur = await conn.execute(SQL_CRIAR, (cod, nick))
+            row = await cur.fetchone()
+        if row:
+            return {"id": row[0], "cod_token": row[1], "nick": row[2]}
+        async with pool.connection() as conn:
+            cur = await conn.execute("SELECT 1 FROM usuarios WHERE nick = %s", (nick,))
+            if await cur.fetchone():
+                return None
+    return None
 
 
-def buscar_usuario(cod_token: str, nick: str):
-    """Validação central: só retorna o usuário se cod_token E nick baterem."""
-    with get_conn() as conn:
-        cur = conn.execute(
-            f"SELECT {_COLS} FROM usuarios WHERE cod_token = %s AND nick = %s AND status = TRUE",
-            (cod_token, nick),
-        )
-        row = cur.fetchone()
+async def buscar_usuario(cod_token: str, nick: str):
+    async with pool.connection() as conn:
+        cur = await conn.execute(SQL_LOGIN, (cod_token, nick))
+        row = await cur.fetchone()
     return _row_to_dict(row) if row else None
 
 
-def adicionar_progresso(cod_token: str, nick: str, pontos=0, exp=0, gold=0, diamantes=0):
-    """Soma pontos/exp/gold/diamantes e sobe o level se necessário (100 exp por level)."""
-    user = buscar_usuario(cod_token, nick)
-    if not user:
-        return None
-
-    nova_exp = user["exp"] + exp
-    novo_level = user["level"]
-    while nova_exp >= novo_level * 100:          # cada level exige level*100 de exp
-        nova_exp -= novo_level * 100
-        novo_level += 1
-
-    with get_conn() as conn:
-        conn.execute(
-            """UPDATE usuarios
-               SET pontos = pontos + %s, exp = %s, level = %s,
-                   gold = gold + %s, diamantes = diamantes + %s
-               WHERE id = %s""",
-            (pontos, nova_exp, novo_level, gold, diamantes, user["id"]),
+async def adicionar_progresso(cod_token: str, nick: str, pontos=0, exp=0, gold=0, diamantes=0):
+    async with pool.connection() as conn:
+        cur = await conn.execute(
+            SQL_PROGRESSO,
+            {"token": cod_token, "nick": nick, "pontos": pontos, "exp": exp, "gold": gold, "diamantes": diamantes},
         )
-    return buscar_usuario(cod_token, nick)
+        row = await cur.fetchone()
+    return _row_to_dict(row) if row else None

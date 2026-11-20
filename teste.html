@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>🎮 API Game — Página de Teste (WebSocket)</title>
+<title>API Game — Teste</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', Arial, sans-serif; }
   body { background: #0d1117; color: #e6edf3; min-height: 100vh; padding: 20px; }
@@ -12,51 +12,60 @@
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; max-width: 1200px; margin: 0 auto; }
   .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 16px; }
   .card h2 { font-size: 16px; margin-bottom: 12px; color: #58a6ff; }
-  input, button { width: 100%; padding: 10px; margin-bottom: 8px; border-radius: 8px; border: 1px solid #30363d; background: #0d1117; color: #e6edf3; font-size: 14px; }
+  input, select, button { width: 100%; padding: 10px; margin-bottom: 8px; border-radius: 8px; border: 1px solid #30363d; background: #0d1117; color: #e6edf3; font-size: 14px; }
   button { background: #238636; border: none; cursor: pointer; font-weight: bold; transition: .15s; }
   button:hover { background: #2ea043; }
   button:disabled { background: #30363d; color: #8b949e; cursor: not-allowed; }
   button.sec { background: #1f6feb; } button.sec:hover { background: #388bfd; }
   button.warn { background: #9e6a03; } button.warn:hover { background: #bf8700; }
+  button.danger { background: #b62324; } button.danger:hover { background: #da3633; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
   .stat { background: #0d1117; border: 1px solid #30363d; border-radius: 8px; padding: 10px; text-align: center; }
   .stat b { display: block; font-size: 20px; color: #f0b429; }
   .stat span { font-size: 11px; color: #8b949e; }
-  #log { max-width: 1200px; margin: 16px auto 0; background: #010409; border: 1px solid #30363d; border-radius: 12px; padding: 12px; height: 220px; overflow-y: auto; font-family: monospace; font-size: 12px; }
-  .ok { color: #3fb950; } .err { color: #f85149; } .info { color: #58a6ff; }
+  .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 8px; }
+  .metrics .stat b { font-size: 16px; }
+  #log { max-width: 1200px; margin: 16px auto 0; background: #010409; border: 1px solid #30363d; border-radius: 12px; padding: 12px; height: 300px; overflow-y: auto; font-family: monospace; font-size: 12px; }
+  .ok { color: #3fb950; } .err { color: #f85149; } .info { color: #58a6ff; } .slow { color: #d29922; }
+  .tempo { color: #8b949e; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   th, td { padding: 6px; text-align: left; border-bottom: 1px solid #21262d; }
   th { color: #8b949e; }
-  #contador { text-align: center; color: #f0b429; font-weight: bold; margin-bottom: 8px; min-height: 18px; }
-  #latencia { position: fixed; top: 10px; right: 10px; background: #161b22; border: 1px solid #30363d; padding: 8px 12px; border-radius: 8px; font-size: 12px; }
-  .ws-on { color: #3fb950; } .ws-off { color: #f85149; }
+  .bar { display: flex; gap: 8px; max-width: 1200px; margin: 16px auto 0; }
+  .bar button { width: auto; margin: 0; padding: 6px 14px; }
+  #resultadoCarga { font-size: 12px; color: #8b949e; margin-top: 4px; min-height: 16px; }
+  label { font-size: 12px; color: #8b949e; display: block; margin-bottom: 2px; }
 </style>
 </head>
 <body>
-  <div id="latencia">🔴 <span id="latenciaValor">HTTP</span></div>
-  <h1>🎮 API Game — Simulador de Jogador</h1>
-  <p class="sub">Crie a conta → faça login → ganhe XP/gold/diamantes → resgate recompensas → veja o rank</p>
+  <h1>API Game — Simulador de Jogador</h1>
+  <p class="sub">Conta, login, progresso e ranking, com tempo de resposta de cada chamada</p>
+
+  <div class="metrics" style="max-width:1200px;margin:0 auto 16px;">
+    <div class="stat"><b id="mCount">0</b><span>REQUISIÇÕES</span></div>
+    <div class="stat"><b id="mAvg">–</b><span>MÉDIA (ms)</span></div>
+    <div class="stat"><b id="mP95">–</b><span>P95 (ms)</span></div>
+    <div class="stat"><b id="mErr">0</b><span>ERROS</span></div>
+  </div>
 
   <div class="grid">
-    <!-- 1. CRIAR CONTA -->
     <div class="card">
-      <h2>1️⃣ Criar conta</h2>
+      <h2>1. Criar conta</h2>
       <input id="nickNovo" placeholder="Escolha um nick">
       <button onclick="criarConta()">Criar conta</button>
       <div id="contaCriada" style="font-size:12px;color:#3fb950;word-break:break-all;"></div>
     </div>
 
-    <!-- 2. LOGIN -->
     <div class="card">
-      <h2>2️⃣ Login / Recuperar conta</h2>
+      <h2>2. Login / Recuperar conta</h2>
       <input id="nickLogin" placeholder="Nick">
       <input id="tokenLogin" placeholder="cod_token">
       <button class="sec" onclick="fazerLogin()">Entrar</button>
     </div>
 
-    <!-- 3. PERFIL -->
     <div class="card">
-      <h2>👤 Seu jogador</h2>
+      <h2>Seu jogador</h2>
       <div class="stats">
         <div class="stat"><b id="sLevel">–</b><span>LEVEL</span></div>
         <div class="stat"><b id="sExp">–</b><span>EXP</span></div>
@@ -70,127 +79,109 @@
       <button class="sec" onclick="atualizarPerfil()">Atualizar perfil</button>
     </div>
 
-    <!-- 4. JOGAR / GANHAR -->
     <div class="card">
-      <h2>⚔️ Jogar (ganhar)</h2>
-      <button onclick="ganhar('xp')">🎯 Ganhar XP (10–50)</button>
-      <button onclick="ganhar('gold')">💰 Ganhar Gold (10–100)</button>
-      <button onclick="ganhar('diamantes')">💎 Ganhar Diamantes (5–50)</button>
-      <button class="warn" onclick="ganharTudo()">🚀 Jogar partida completa</button>
+      <h2>Jogar (ganhar)</h2>
+      <button onclick="ganhar('xp')">Ganhar XP (10–50)</button>
+      <button onclick="ganhar('gold')">Ganhar Gold (10–100)</button>
+      <button onclick="ganhar('diamantes')">Ganhar Diamantes (5–50)</button>
+      <button class="warn" onclick="ganharTudo()">Partida completa (3 chamadas em paralelo)</button>
     </div>
 
-    <!-- 5. RECOMPENSA DE TEMPO -->
     <div class="card">
-      <h2>⏰ Recompensa de tempo (10 min)</h2>
-      <div id="contador"></div>
-      <button class="warn" onclick="resgatarTempo()">Resgatar recompensa</button>
-      <p style="font-size:11px;color:#8b949e;margin-top:6px;">A cada 10 min: 10–100 gold OU 10–100 diamantes (aleatório). O servidor controla o tempo.</p>
-    </div>
-
-    <!-- 6. RANK -->
-    <div class="card">
-      <h2>🏆 Ranking</h2>
-      <button class="sec" onclick="verRank('/rank')">Ranking geral</button>
-      <button class="sec" onclick="verRank('/rank/mes')" style="margin-bottom:8px;">Ranking do mês</button>
+      <h2>Ranking</h2>
+      <div class="row">
+        <button class="sec" onclick="verRank('/rank')">Geral</button>
+        <button class="sec" onclick="verRank('/rank/mes')">Do mês</button>
+      </div>
       <div id="rankBox"><p style="color:#8b949e;font-size:12px;">Clique para carregar.</p></div>
+    </div>
+
+    <div class="card">
+      <h2>Teste de carga</h2>
+      <label>Endpoint</label>
+      <select id="cargaRota">
+        <option value="health">GET / (sem banco)</option>
+        <option value="rank">GET /rank</option>
+        <option value="login">POST /usuarios/login (requer login)</option>
+        <option value="progresso">POST /usuarios/progresso (requer login)</option>
+      </select>
+      <div class="row">
+        <div><label>Total de requisições</label><input id="cargaTotal" type="number" value="200" min="1" max="5000"></div>
+        <div><label>Simultâneas</label><input id="cargaConc" type="number" value="20" min="1" max="200"></div>
+      </div>
+      <div class="row">
+        <button class="danger" id="btnCarga" onclick="rodarCarga()">Iniciar</button>
+        <button class="sec" onclick="limparMetricas()">Zerar métricas</button>
+      </div>
+      <div id="resultadoCarga"></div>
     </div>
   </div>
 
-  <div id="log"></div>
+  <div class="bar">
+    <button class="sec" onclick="document.getElementById('log').innerHTML=''">Limpar log</button>
+    <label style="align-self:center;display:flex;gap:6px;align-items:center;">
+      <input type="checkbox" id="logCarga" style="width:auto;margin:0;"> logar cada requisição da carga
+    </label>
+  </div>
+  <div id="log" style="margin-top:8px;"></div>
 
 <script>
-const API = window.location.origin.includes("localhost") || window.location.protocol === "file:"
-  ? "https://api-jogo-1.onrender.com"   // abrindo local/arquivo: aponta para a API no Render
-  : window.location.origin;             // servido pelo próprio Render
-
-const WS_API = API.replace("https://", "wss://").replace("http://", "ws://");
+const API = window.location.protocol === "file:"
+  ? "https://api-jogo-1.onrender.com"
+  : window.location.origin;
 
 let cod_token = localStorage.getItem("cod_token") || "";
 let nick = localStorage.getItem("nick") || "";
 document.getElementById("nickLogin").value = nick;
 document.getElementById("tokenLogin").value = cod_token;
 
-// ==================== WEBSOCKET ====================
-let ws = null;
-let wsLatencia = 0;
+let tempos = [];
+let erros = 0;
+let totalReq = 0;
 
-function conectarWebSocket() {
-  if (!cod_token || !nick) return;
-
-  const url = `${WS_API}/ws/${cod_token}/${nick}`;
-  log(`🔌 Conectando WebSocket...`, "info");
-
-  ws = new WebSocket(url);
-
-  ws.onopen = () => {
-    document.getElementById("latenciaValor").textContent = "WS: conectado";
-    document.getElementById("latencia").className = "ws-on";
-    log(`✅ WebSocket conectado! Latência real-time ativada.`, "ok");
-    medirLatencia();
-  };
-
-  ws.onmessage = (event) => {
-    const msg = JSON.parse(event.data);
-
-    if (msg.tipo === "pong") {
-      wsLatencia = Math.round((Date.now() - msg.dados.timestamp * 1000) / 10) / 100;
-      document.getElementById("latenciaValor").textContent = `WS: ${wsLatencia}ms`;
-    }
-    else if (msg.tipo === "conectado" || msg.tipo === "progresso") {
-      preencherPerfil(msg.dados);
-      log(`📊 Perfil atualizado via WS`, "ok");
-    }
-    else if (msg.tipo === "recompensa") {
-      preencherPerfil(msg.dados.saldo);
-      const moeda = Object.keys(msg.dados.recompensa)[0];
-      log(`🎁 Recompensa via WS: ${msg.dados.recompensa[moeda]} ${moeda}!`, "ok");
-      iniciarContador(600);
-    }
-    else if (msg.tipo === "rank") {
-      mostrarRank(msg.dados.ranking);
-    }
-    else if (msg.tipo === "erro") {
-      log(`❌ Erro WS: ${msg.dados.erro}`, "err");
-    }
-  };
-
-  ws.onclose = () => {
-    document.getElementById("latenciaValor").textContent = "WS: desconectado";
-    document.getElementById("latencia").className = "ws-off";
-    log(`🔌 WebSocket desconectado. Reconectando em 3s...`, "err");
-    setTimeout(conectarWebSocket, 3000);
-  };
-
-  ws.onerror = (e) => {
-    log(`❌ Erro no WebSocket`, "err");
-  };
-}
-
-function medirLatencia() {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({acao: "ping", timestamp: Date.now() / 1000}));
-  }
-  setTimeout(medirLatencia, 2000); // mede a cada 2s
-}
-
-function enviarWS(dados) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(dados));
-    return true;
-  }
-  return false;
-}
-// ==================== FIM WEBSOCKET ====================
-
-function log(msg, cls="info") {
+function log(msg, cls = "info") {
   const el = document.getElementById("log");
   const hora = new Date().toLocaleTimeString();
-  el.innerHTML += `<div class="${cls}">[${hora}] ${msg}</div>`;
+  const div = document.createElement("div");
+  div.className = cls;
+  div.innerHTML = `[${hora}] ${msg}`;
+  el.appendChild(div);
+  while (el.childElementCount > 500) el.removeChild(el.firstChild);
   el.scrollTop = el.scrollHeight;
 }
 
-async function api(metodo, rota, corpo) {
-  log(`${metodo} ${rota} ${corpo ? JSON.stringify(corpo) : ""}`);
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function registrar(ms, ok) {
+  totalReq++;
+  if (ok) tempos.push(ms); else erros++;
+  atualizarMetricas();
+}
+
+function atualizarMetricas() {
+  document.getElementById("mCount").textContent = totalReq;
+  document.getElementById("mErr").textContent = erros;
+  if (!tempos.length) {
+    document.getElementById("mAvg").textContent = "–";
+    document.getElementById("mP95").textContent = "–";
+    return;
+  }
+  const ord = [...tempos].sort((a, b) => a - b);
+  const media = tempos.reduce((a, b) => a + b, 0) / tempos.length;
+  document.getElementById("mAvg").textContent = media.toFixed(1);
+  document.getElementById("mP95").textContent = ord[Math.min(ord.length - 1, Math.floor(ord.length * 0.95))].toFixed(1);
+}
+
+function limparMetricas() {
+  tempos = []; erros = 0; totalReq = 0;
+  atualizarMetricas();
+  document.getElementById("resultadoCarga").textContent = "";
+}
+
+async function chamar(metodo, rota, corpo) {
+  const t0 = performance.now();
   try {
     const resp = await fetch(API + rota, {
       method: metodo,
@@ -198,46 +189,29 @@ async function api(metodo, rota, corpo) {
       body: corpo ? JSON.stringify(corpo) : undefined
     });
     const dados = await resp.json().catch(() => ({}));
-    if (!resp.ok) {
-      log(`❌ Erro ${resp.status}: ${dados.detail || JSON.stringify(dados)}`, "err");
-      return null;
-    }
-    log(`✅ ${JSON.stringify(dados)}`, "ok");
-    return dados;
+    const total = performance.now() - t0;
+    const srv = parseFloat(resp.headers.get("X-Process-Time"));
+    return { ok: resp.ok, status: resp.status, dados, total, srv: isNaN(srv) ? null : srv };
   } catch (e) {
-    log(`❌ Falha de rede: ${e.message}`, "err");
+    return { ok: false, status: 0, dados: { detail: e.message }, total: performance.now() - t0, srv: null };
+  }
+}
+
+function fmtTempo(r) {
+  const rede = r.srv === null ? "" : ` | servidor ${r.srv.toFixed(1)}ms | rede ${(r.total - r.srv).toFixed(1)}ms`;
+  return `<span class="tempo">⏱ total ${r.total.toFixed(1)}ms${rede}</span>`;
+}
+
+async function api(metodo, rota, corpo) {
+  const r = await chamar(metodo, rota, corpo);
+  registrar(r.total, r.ok);
+  const lento = r.total > 500 ? " slow" : "";
+  if (!r.ok) {
+    log(`${metodo} ${rota} → ${r.status} ${esc(r.dados.detail || JSON.stringify(r.dados))} ${fmtTempo(r)}`, "err");
     return null;
   }
-}
-
-async function criarConta() {
-  const nickNovo = document.getElementById("nickNovo").value.trim();
-  if (!nickNovo) return log("Informe um nick.", "err");
-  const r = await api("POST", "/usuarios/criar", { nick: nickNovo });
-  if (r) {
-    cod_token = r.cod_token; nick = r.nick;
-    localStorage.setItem("cod_token", cod_token);
-    localStorage.setItem("nick", nick);
-    document.getElementById("contaCriada").innerHTML =
-      `Conta criada!<br>cod_token: <b>${cod_token}</b><br>Guarde esse token — ele é sua senha/recuperação.`;
-    document.getElementById("nickLogin").value = nick;
-    document.getElementById("tokenLogin").value = cod_token;
-    preencherPerfil({ nick, level: 1, exp: 0, gold: 0, diamantes: 0, pontos: 0 });
-    conectarWebSocket();
-  }
-}
-
-async function fazerLogin() {
-  nick = document.getElementById("nickLogin").value.trim();
-  cod_token = document.getElementById("tokenLogin").value.trim();
-  const r = await api("POST", "/usuarios/login", { cod_token, nick });
-  if (r) {
-    localStorage.setItem("cod_token", cod_token);
-    localStorage.setItem("nick", nick);
-    preencherPerfil(r);
-    log(`🔓 Login feito como ${r.nick}!`, "ok");
-    conectarWebSocket();
-  }
+  log(`${metodo} ${rota} → ${r.status} ${fmtTempo(r)}`, lento ? "slow" : "ok");
+  return r.dados;
 }
 
 function preencherPerfil(u) {
@@ -251,106 +225,146 @@ function preencherPerfil(u) {
 
 function auth() { return { cod_token, nick }; }
 
-async function atualizarPerfil() {
-  // Tenta via WebSocket primeiro (instantâneo), senão cai no HTTP
-  if (!enviarWS({acao: "ping"})) {
-    const r = await api("POST", "/usuarios/login", auth());
-    if (r) preencherPerfil(r);
+async function criarConta() {
+  const nickNovo = document.getElementById("nickNovo").value.trim();
+  if (!nickNovo) return log("Informe um nick.", "err");
+  const r = await api("POST", "/usuarios/criar", { nick: nickNovo });
+  if (r) {
+    cod_token = r.cod_token; nick = r.nick;
+    localStorage.setItem("cod_token", cod_token);
+    localStorage.setItem("nick", nick);
+    document.getElementById("contaCriada").innerHTML =
+      `Conta criada!<br>cod_token: <b>${esc(cod_token)}</b><br>Guarde esse token: ele é sua senha de recuperação.`;
+    document.getElementById("nickLogin").value = nick;
+    document.getElementById("tokenLogin").value = cod_token;
+    preencherPerfil({ nick, level: 1, exp: 0, gold: 0, diamantes: 0, pontos: 0 });
   }
+}
+
+async function fazerLogin() {
+  nick = document.getElementById("nickLogin").value.trim();
+  cod_token = document.getElementById("tokenLogin").value.trim();
+  const r = await api("POST", "/usuarios/login", { cod_token, nick });
+  if (r) {
+    localStorage.setItem("cod_token", cod_token);
+    localStorage.setItem("nick", nick);
+    preencherPerfil(r);
+  }
+}
+
+async function atualizarPerfil() {
+  if (!cod_token) return log("Faça login primeiro.", "err");
+  const r = await api("POST", "/usuarios/login", auth());
+  if (r) preencherPerfil(r);
 }
 
 function rnd(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
 
+function corpoGanho(tipo) {
+  const c = { pontos: 0, exp: 0, gold: 0, diamantes: 0 };
+  if (tipo === "xp")        { c.exp = rnd(10, 50); c.pontos = rnd(5, 25); }
+  if (tipo === "gold")      { c.gold = rnd(10, 100); }
+  if (tipo === "diamantes") { c.diamantes = rnd(5, 50); }
+  return c;
+}
+
 async function ganhar(tipo) {
   if (!cod_token) return log("Faça login primeiro.", "err");
-
-  const corpo = { pontos: 0, exp: 0, gold: 0, diamantes: 0 };
-  if (tipo === "xp")        { corpo.exp = rnd(10, 50);      corpo.pontos = rnd(5, 25); }
-  if (tipo === "gold")      { corpo.gold = rnd(10, 100); }
-  if (tipo === "diamantes") { corpo.diamantes = rnd(5, 50); }
-
-  // Tenta WebSocket primeiro (latência <10ms)
-  if (enviarWS({acao: "progresso", ...corpo})) {
-    log(`⚡ Enviado via WebSocket: ${tipo}`, "ok");
-    return;
-  }
-
-  // Fallback HTTP
-  const r = await api("POST", "/usuarios/progresso", { ...auth(), ...corpo });
+  const r = await api("POST", "/usuarios/progresso", { ...auth(), ...corpoGanho(tipo) });
   if (r) preencherPerfil(r);
+  return r;
 }
 
 async function ganharTudo() {
-  await ganhar("xp"); await ganhar("gold"); await ganhar("diamantes");
+  if (!cod_token) return log("Faça login primeiro.", "err");
+  await Promise.all(["xp", "gold", "diamantes"].map(t => ganhar(t)));
   await atualizarPerfil();
 }
 
-let cooldown = null;
-async function resgatarTempo() {
-  if (!cod_token) return log("Faça login primeiro.", "err");
-
-  // Tenta WebSocket primeiro
-  if (enviarWS({acao: "recompensa_tempo"})) {
-    log(`⚡ Resgate via WebSocket...`, "ok");
-    iniciarContador(600);
+function mostrarRank(ranking) {
+  if (!ranking.length) {
+    document.getElementById("rankBox").innerHTML = "<p style='color:#8b949e;font-size:12px;'>Sem jogadores ainda.</p>";
     return;
   }
-
-  // Fallback HTTP
-  const r = await api("POST", "/recompensas/tempo", auth());
-  if (r) {
-    preencherPerfil(r.saldo);
-    const moeda = Object.keys(r.recompensa)[0];
-    log(`🎁 Você ganhou ${r.recompensa[moeda]} ${moeda}!`, "ok");
-    iniciarContador(600);
-  } else {
-    iniciarContador(600);
-  }
-}
-
-function iniciarContador(segundos) {
-  clearInterval(cooldown);
-  let restante = segundos;
-  const el = document.getElementById("contador");
-  const tick = () => {
-    const m = String(Math.floor(restante / 60)).padStart(2, "0");
-    const s = String(restante % 60).padStart(2, "0");
-    el.textContent = restante > 0 ? `⏳ Próxima recompensa em ${m}:${s}` : "✅ Recompensa disponível!";
-    if (restante <= 0) clearInterval(cooldown);
-    restante--;
-  };
-  tick();
-  cooldown = setInterval(tick, 1000);
-}
-
-function mostrarRank(ranking) {
   let html = "<table><tr><th>#</th><th>Nick</th><th>Pontos</th><th>Level</th></tr>";
   for (const j of ranking) {
-    html += `<tr><td>${j.posicao}</td><td>${j.nick}</td><td>${j.pontos}</td><td>${j.level}</td></tr>`;
+    html += `<tr><td>${j.posicao}</td><td>${esc(j.nick)}</td><td>${j.pontos}</td><td>${j.level}</td></tr>`;
   }
-  html += "</table>";
-  if (!ranking.length) html = "<p style='color:#8b949e;font-size:12px;'>Sem jogadores ainda.</p>";
-  document.getElementById("rankBox").innerHTML = html;
+  document.getElementById("rankBox").innerHTML = html + "</table>";
 }
 
 async function verRank(rota) {
-  // Tenta WebSocket primeiro
-  if (enviarWS({acao: "rank"})) {
-    log(`⚡ Rank via WebSocket...`, "ok");
-    return;
+  const r = await api("GET", rota);
+  if (r) mostrarRank(r.ranking);
+}
+
+let cargaRodando = false;
+
+async function rodarCarga() {
+  if (cargaRodando) return;
+  const tipo = document.getElementById("cargaRota").value;
+  const total = Math.min(5000, Math.max(1, parseInt(document.getElementById("cargaTotal").value) || 1));
+  const conc = Math.min(200, Math.max(1, parseInt(document.getElementById("cargaConc").value) || 1));
+  if ((tipo === "login" || tipo === "progresso") && !cod_token) return log("Faça login primeiro.", "err");
+
+  const montar = () => {
+    if (tipo === "health") return ["GET", "/", null];
+    if (tipo === "rank") return ["GET", "/rank", null];
+    if (tipo === "login") return ["POST", "/usuarios/login", auth()];
+    return ["POST", "/usuarios/progresso", { ...auth(), pontos: 1, exp: 1, gold: 1, diamantes: 0 }];
+  };
+
+  cargaRodando = true;
+  const btn = document.getElementById("btnCarga");
+  btn.disabled = true;
+  const res = document.getElementById("resultadoCarga");
+  const mostrarLog = document.getElementById("logCarga").checked;
+  log(`Carga iniciada: ${total} requisições, ${conc} simultâneas, ${tipo}`, "info");
+
+  const temposCarga = [];
+  const temposSrv = [];
+  let falhas = 0, feitas = 0, proximo = 0;
+  const inicio = performance.now();
+
+  async function worker() {
+    while (proximo < total) {
+      proximo++;
+      const [m, rota, corpo] = montar();
+      const r = await chamar(m, rota, corpo);
+      registrar(r.total, r.ok);
+      feitas++;
+      if (r.ok) { temposCarga.push(r.total); if (r.srv !== null) temposSrv.push(r.srv); } else falhas++;
+      if (mostrarLog) log(`#${feitas} ${m} ${rota} → ${r.status} ${fmtTempo(r)}`, r.ok ? "ok" : "err");
+      if (feitas % 10 === 0 || feitas === total) {
+        res.textContent = `${feitas}/${total} concluídas...`;
+      }
+    }
   }
 
-  // Fallback HTTP
-  const r = await api("GET", rota);
-  if (!r) return;
-  mostrarRank(r.ranking);
+  await Promise.all(Array.from({ length: conc }, worker));
+
+  const dur = (performance.now() - inicio) / 1000;
+  const pct = (arr, p) => {
+    if (!arr.length) return 0;
+    const o = [...arr].sort((a, b) => a - b);
+    return o[Math.min(o.length - 1, Math.floor(o.length * p))];
+  };
+  const media = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0;
+  const rps = total / dur;
+  const resumo =
+    `${total} req em ${dur.toFixed(2)}s | ${rps.toFixed(1)} req/s | falhas ${falhas} | ` +
+    `total med ${media(temposCarga).toFixed(1)}ms p50 ${pct(temposCarga, .5).toFixed(1)} p95 ${pct(temposCarga, .95).toFixed(1)} p99 ${pct(temposCarga, .99).toFixed(1)} max ${pct(temposCarga, 1).toFixed(1)} | ` +
+    `servidor med ${media(temposSrv).toFixed(1)}ms p95 ${pct(temposSrv, .95).toFixed(1)}`;
+  res.textContent = resumo;
+  log(`Carga concluída: ${resumo}`, falhas ? "err" : "ok");
+
+  if (tipo === "progresso" || tipo === "login") await atualizarPerfil();
+  cargaRodando = false;
+  btn.disabled = false;
 }
 
-log(`Conectado à API: ${API}`, "info");
-if (cod_token && nick) { 
-  log("Sessão anterior encontrada — conectando WebSocket...", "info");
-  conectarWebSocket();
-}
+log(`API: ${API}`, "info");
+if (cod_token && nick) atualizarPerfil();
 </script>
 </body>
 </html>
