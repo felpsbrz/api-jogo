@@ -188,7 +188,7 @@ async def criar(b: Criar):
             )
             if not await cur.fetchone():
                 if await _auth(conn, b.cod_token, b.nick):
-                    raise HTTPException(400, "Diamantes insuficientes.")
+                    raise HTTPException(0, "Diamantes insuficientes.")
                 raise HTTPException(401, "cod_token ou nick inválidos.")
             cur = await conn.execute(
                 "INSERT INTO torneios (nome, premio, criador) VALUES (%s, %s, %s) RETURNING id",
