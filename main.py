@@ -13,6 +13,7 @@ import torneio
 import users
 
 PAGINA_TESTE = Path(__file__).with_name("teste.html").read_text(encoding="utf-8")
+PAGINA_ACOMPANHAR = Path(__file__).with_name("acompanharTorneios.html").read_text(encoding="utf-8")
 PAGINA_TESTE_TORNEIO = Path(__file__).with_name("testeTorneio.html").read_text(encoding="utf-8")
 
 
@@ -92,6 +93,11 @@ async def pagina_teste():
 @app.get("/teste-torneio", response_class=HTMLResponse)
 async def pagina_teste_torneio():
     return PAGINA_TESTE_TORNEIO
+
+
+@app.get("/acompanhar", response_class=HTMLResponse)
+async def pagina_acompanhar():
+    return PAGINA_ACOMPANHAR
 
 
 @app.post("/usuarios/criar")
