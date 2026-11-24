@@ -9,9 +9,11 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 import rank
+import torneio
 import users
 
 PAGINA_TESTE = Path(__file__).with_name("teste.html").read_text(encoding="utf-8")
+PAGINA_TESTE_TORNEIO = Path(__file__).with_name("testeTorneio.html").read_text(encoding="utf-8")
 
 
 @asynccontextmanager
@@ -19,6 +21,7 @@ async def lifespan(app: FastAPI):
     for tentativa in range(5):
         try:
             await users.init_db()
+            await torneio.init_torneio()
             break
         except Exception:
             if tentativa == 4:
@@ -57,6 +60,7 @@ app.add_middleware(
     expose_headers=["X-Process-Time"],
 )
 app.add_middleware(TempoResposta)
+app.include_router(torneio.router)
 
 
 class CriarUsuario(BaseModel):
@@ -83,6 +87,11 @@ async def health():
 @app.get("/teste", response_class=HTMLResponse)
 async def pagina_teste():
     return PAGINA_TESTE
+
+
+@app.get("/teste-torneio", response_class=HTMLResponse)
+async def pagina_teste_torneio():
+    return PAGINA_TESTE_TORNEIO
 
 
 @app.post("/usuarios/criar")

@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>API Game — Teste de Torneios</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', Arial, sans-serif; }
+  body { background: #0d1117; color: #e6edf3; min-height: 100vh; padding: 20px; }
+  h1 { text-align: center; margin-bottom: 4px; }
+  .sub { text-align: center; color: #8b949e; font-size: 13px; margin-bottom: 20px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; max-width: 1200px; margin: 0 auto; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 16px; }
+  .card h2 { font-size: 16px; margin-bottom: 12px; color: #58a6ff; }
+  input, button { width: 100%; padding: 10px; margin-bottom: 8px; border-radius: 8px; border: 1px solid #30363d; background: #0d1117; color: #e6edf3; font-size: 14px; }
+  button { background: #238636; border: none; cursor: pointer; font-weight: bold; transition: .15s; }
+  button:hover { background: #2ea043; }
+  button:disabled { background: #30363d; color: #8b949e; cursor: not-allowed; }
+  button.sec { background: #1f6feb; } button.sec:hover { background: #388bfd; }
+  button.warn { background: #9e6a03; } button.warn:hover { background: #bf8700; }
+  button.danger { background: #b62324; } button.danger:hover { background: #da3633; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .stat { background: #0d1117; border: 1px solid #30363d; border-radius: 8px; padding: 10px; text-align: center; margin-bottom: 8px; }
+  .stat b { display: block; font-size: 20px; color: #f0b429; }
+  .stat span { font-size: 11px; color: #8b949e; }
+  .lista { max-width: 1200px; margin: 16px auto 0; }
+  .lista .topo { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .lista .topo button { width: auto; margin: 0; padding: 6px 14px; }
+  .scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 8px 6px; text-align: left; border-bottom: 1px solid #21262d; white-space: nowrap; }
+  th { color: #8b949e; }
+  td button { width: auto; margin: 0 4px 0 0; padding: 5px 10px; font-size: 12px; }
+  .tag { padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: bold; }
+  .t-aberto { background: #1f6feb33; color: #58a6ff; }
+  .t-andamento { background: #9e6a0333; color: #d29922; }
+  .t-finalizado { background: #30363d; color: #8b949e; }
+  .on { color: #3fb950; } .off { color: #f85149; }
+  #log { max-width: 1200px; margin: 16px auto 0; background: #010409; border: 1px solid #30363d; border-radius: 12px; padding: 12px; height: 240px; overflow-y: auto; font-family: monospace; font-size: 12px; }
+  .ok { color: #3fb950; } .err { color: #f85149; } .info { color: #58a6ff; }
+  label { font-size: 12px; color: #8b949e; display: block; margin-bottom: 2px; }
+  .vazio { color: #8b949e; font-size: 13px; padding: 8px 0; }
+</style>
+</head>
+<body>
+  <h1>API Game — Torneios</h1>
+  <p class="sub">Criar, listar, ativar/desativar e inscrever jogadores com nome aleatório</p>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Conta</h2>
+      <input id="nickLogin" placeholder="Nick">
+      <input id="tokenLogin" placeholder="cod_token">
+      <div class="row">
+        <button class="sec" onclick="fazerLogin()">Entrar</button>
+        <button onclick="criarConta()">Criar conta</button>
+      </div>
+      <div class="stat"><b id="sDia">–</b><span id="sNick">não logado · DIAMANTES</span></div>
+      <button class="warn" onclick="ganharDiamantes()">+ Ganhar diamantes (50–200)</button>
+    </div>
+
+    <div class="card">
+      <h2>Criar torneio</h2>
+      <label>Nome</label>
+      <input id="tNome" placeholder="Nome do torneio" maxlength="40">
+      <label>Prêmio (diamantes, debitado da sua conta)</label>
+      <input id="tPremio" type="number" value="10" min="1">
+      <button onclick="criarTorneio()">Criar torneio</button>
+    </div>
+  </div>
+
+  <div class="card lista">
+    <div class="topo">
+      <h2 style="margin:0;">Torneios</h2>
+      <button class="sec" onclick="listar()">Atualizar</button>
+    </div>
+    <div class="scroll"><div id="tabela"><p class="vazio">Carregando...</p></div></div>
+  </div>
+
+  <div id="log"></div>
+
+<script>
+const API = window.location.protocol === "file:"
+  ? "https://api-jogo-1.onrender.com"
+  : window.location.origin;
+
+let cod_token = localStorage.getItem("cod_token") || "";
+let nick = localStorage.getItem("nick") || "";
+let torneios = [];
+document.getElementById("nickLogin").value = nick;
+document.getElementById("tokenLogin").value = cod_token;
+
+const ADJ = ["Veloz", "Sombrio", "Feroz", "Gelado", "Ligeiro", "Astuto", "Bravo", "Mestre", "Noturno", "Radiante", "Rapido", "Lendario"];
+const SUB = ["Lobo", "Urso", "Falcao", "Dragao", "Pinguim", "Tigre", "Coruja", "Raposa", "Golem", "Ninja", "Viking", "Foca"];
+
+function rnd(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+function sorteio(a) { return a[rnd(0, a.length - 1)]; }
+function nickAleatorio() { return sorteio(SUB) + sorteio(ADJ) + rnd(10, 99999); }
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function log(msg, cls = "info") {
+  const el = document.getElementById("log");
+  const div = document.createElement("div");
+  div.className = cls;
+  div.innerHTML = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  el.appendChild(div);
+  while (el.childElementCount > 300) el.removeChild(el.firstChild);
+  el.scrollTop = el.scrollHeight;
+}
+
+async function api(metodo, rota, corpo) {
+  try {
+    const resp = await fetch(API + rota, {
+      method: metodo,
+      headers: { "Content-Type": "application/json" },
+      body: corpo ? JSON.stringify(corpo) : undefined
+    });
+    const dados = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      const d = dados.detail;
+      log(`${metodo} ${rota} → ${resp.status} ${esc(typeof d === "string" ? d : JSON.stringify(d || dados))}`, "err");
+      return null;
+    }
+    log(`${metodo} ${rota} → ${resp.status}`, "ok");
+    return dados;
+  } catch (e) {
+    log(`${metodo} ${rota} → ${esc(e.message)}`, "err");
+    return null;
+  }
+}
+
+function auth() { return { cod_token, nick }; }
+
+function mostrarPerfil(u) {
+  document.getElementById("sDia").textContent = u.diamantes;
+  document.getElementById("sNick").textContent = `${u.nick} · DIAMANTES`;
+}
+
+async function atualizarPerfil() {
+  if (!cod_token) return;
+  const r = await api("POST", "/usuarios/login", auth());
+  if (r) mostrarPerfil(r);
+}
+
+function salvarSessao() {
+  localStorage.setItem("cod_token", cod_token);
+  localStorage.setItem("nick", nick);
+  document.getElementById("nickLogin").value = nick;
+  document.getElementById("tokenLogin").value = cod_token;
+}
+
+async function fazerLogin() {
+  nick = document.getElementById("nickLogin").value.trim();
+  cod_token = document.getElementById("tokenLogin").value.trim();
+  const r = await api("POST", "/usuarios/login", auth());
+  if (r) {
+    salvarSessao();
+    mostrarPerfil(r);
+    listar();
+  }
+}
+
+async function criarConta() {
+  const n = document.getElementById("nickLogin").value.trim() || nickAleatorio();
+  const r = await api("POST", "/usuarios/criar", { nick: n });
+  if (r) {
+    cod_token = r.cod_token;
+    nick = r.nick;
+    salvarSessao();
+    mostrarPerfil({ nick, diamantes: 0 });
+    log(`Conta criada: ${esc(nick)} | cod_token ${esc(cod_token)}`, "ok");
+    listar();
+  }
+}
+
+async function ganharDiamantes() {
+  if (!cod_token) return log("Faça login primeiro.", "err");
+  const r = await api("POST", "/usuarios/progresso", { ...auth(), pontos: 0, exp: 0, gold: 0, diamantes: rnd(50, 200) });
+  if (r) mostrarPerfil(r);
+}
+
+async function criarTorneio() {
+  if (!cod_token) return log("Faça login primeiro.", "err");
+  const nome = document.getElementById("tNome").value.trim();
+  const premio = parseInt(document.getElementById("tPremio").value);
+  if (!nome) return log("Informe o nome do torneio.", "err");
+  if (!premio || premio < 1) return log("Informe um prêmio válido.", "err");
+  const r = await api("POST", "/torneios/criar", { ...auth(), nome, premio });
+  if (r) {
+    log(`Torneio #${r.id} criado.`, "ok");
+    document.getElementById("tNome").value = "";
+    await Promise.all([listar(), atualizarPerfil()]);
+  }
+}
+
+function ativoDe(t) { return t.ativo !== false; }
+
+function desenhar() {
+  const box = document.getElementById("tabela");
+  if (!torneios.length) {
+    box.innerHTML = '<p class="vazio">Nenhum torneio criado ainda.</p>';
+    return;
+  }
+  let html = "<table><tr><th>ID</th><th>Nome</th><th>Prêmio</th><th>Status</th><th>Inscritos</th><th>Ativo</th><th>Criador</th><th>Ações</th></tr>";
+  for (const t of torneios) {
+    const ativo = ativoDe(t);
+    const meu = nick && t.criador === nick;
+    const podeInscrever = t.status === "aberto" && ativo;
+    html += `<tr>
+      <td>${t.id}</td>
+      <td>${esc(t.nome)}</td>
+      <td>${t.premio}</td>
+      <td><span class="tag t-${esc(t.status)}">${esc(t.status)}</span></td>
+      <td>${t.inscritos}/8</td>
+      <td class="${ativo ? "on" : "off"}">${ativo ? "ativo" : "desativado"}</td>
+      <td>${esc(t.criador || "")}</td>
+      <td>
+        <button class="${ativo ? "danger" : "sec"}" ${meu ? "" : "disabled"} onclick="alternar(${t.id}, ${!ativo})">${ativo ? "Desativar" : "Ativar"}</button>
+        <button ${podeInscrever ? "" : "disabled"} onclick="inscreverAleatorio(${t.id})">Inscrever aleatório</button>
+      </td>
+    </tr>`;
+  }
+  box.innerHTML = html + "</table>";
+}
+
+async function listar() {
+  const r = await api("GET", "/torneios");
+  if (r) {
+    torneios = r.torneios;
+    desenhar();
+  }
+}
+
+async function alternar(id, ativo) {
+  if (!cod_token) return log("Faça login primeiro.", "err");
+  const r = await api("POST", `/torneios/${id}/ativo`, { ...auth(), ativo });
+  if (r) {
+    log(`Torneio #${id} ${ativo ? "ativado" : "desativado"}.`, "ok");
+    listar();
+  }
+}
+
+async function inscreverAleatorio(id) {
+  let conta = null;
+  for (let i = 0; i < 5 && !conta; i++) {
+    conta = await api("POST", "/usuarios/criar", { nick: nickAleatorio() });
+  }
+  if (!conta) return log("Não foi possível gerar um nome aleatório.", "err");
+  const r = await api("POST", `/torneios/${id}/inscrever`, { cod_token: conta.cod_token, nick: conta.nick });
+  if (r) {
+    log(`${esc(conta.nick)} inscrito no torneio #${id} (${r.inscritos}/8) | cod_token ${esc(conta.cod_token)}`, "ok");
+  }
+  listar();
+}
+
+listar();
+atualizarPerfil();
+</script>
+</body>
+</html>

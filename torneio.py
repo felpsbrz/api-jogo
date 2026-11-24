@@ -11,7 +11,7 @@ LIMITE_PARTIDA = 1200
 SQL_ESTADO = """
 SELECT t.nome, t.premio, t.criador, t.status, t.vencedor, t.atual, t.inscritos,
        p.ordem, p.a, p.b, p.vencedor, p.pronto_a, p.pronto_b,
-       COALESCE(EXTRACT(EPOCH FROM NOW() - p.inicio), 0)::float
+       COALESCE(EXTRACT(EPOCH FROM NOW() - p.inicio), 0)::float, t.ativo
 FROM torneios t JOIN torneio_partidas p ON p.torneio_id = t.id
 WHERE t.id = %s ORDER BY p.ordem
 """
@@ -25,6 +25,10 @@ class Auth(BaseModel):
 class Criar(Auth):
     nome: str = Field(min_length=1, max_length=40)
     premio: int = Field(ge=1, le=1_000_000_000)
+
+
+class Ativo(Auth):
+    ativo: bool
 
 
 class Resultado(Auth):
@@ -46,6 +50,7 @@ async def init_torneio():
             data_create TIMESTAMPTZ DEFAULT NOW()
         )
         """)
+        await conn.execute("ALTER TABLE torneios ADD COLUMN IF NOT EXISTS ativo BOOLEAN NOT NULL DEFAULT TRUE")
         await conn.execute("""
         CREATE TABLE IF NOT EXISTS torneio_partidas (
             torneio_id BIGINT NOT NULL REFERENCES torneios(id) ON DELETE CASCADE,
@@ -105,7 +110,7 @@ async def _ler(conn, id):
         "id": id, "nome": t[0], "premio": t[1], "criador": t[2], "status": t[3],
         "vencedor": t[4] or "", "atual": atual, "inscritos": t[6],
         "restante": max(0, int(PRAZO - decorrido)) if andamento else 0,
-        "decorrido": decorrido, "partidas": partidas,
+        "decorrido": decorrido, "partidas": partidas, "ativo": t[14],
     }
 
 
@@ -159,12 +164,13 @@ async def _sincronizar(conn, id):
 async def listar():
     async with pool.connection() as conn:
         cur = await conn.execute(
-            "SELECT id, nome, premio, status, inscritos FROM torneios "
+            "SELECT id, nome, premio, status, inscritos, ativo, criador FROM torneios "
             "ORDER BY (status = 'aberto') DESC, id DESC LIMIT 30"
         )
         rows = await cur.fetchall()
     return {"torneios": [
-        {"id": r[0], "nome": r[1], "premio": r[2], "status": r[3], "inscritos": r[4]} for r in rows
+        {"id": r[0], "nome": r[1], "premio": r[2], "status": r[3], "inscritos": r[4], "ativo": r[5], "criador": r[6]}
+        for r in rows
     ]}
 
 
@@ -196,6 +202,22 @@ async def criar(b: Criar):
     return {"id": id}
 
 
+@router.post("/{id}/ativo")
+async def definir_ativo(id: int, b: Ativo):
+    async with pool.connection() as conn:
+        async with conn.transaction():
+            if not await _auth(conn, b.cod_token, b.nick):
+                raise HTTPException(401, "cod_token ou nick inválidos.")
+            cur = await conn.execute("SELECT criador FROM torneios WHERE id = %s FOR UPDATE", (id,))
+            t = await cur.fetchone()
+            if not t:
+                raise HTTPException(404, "Torneio não existe.")
+            if t[0] != b.nick:
+                raise HTTPException(403, "Apenas o criador pode ativar ou desativar.")
+            await conn.execute("UPDATE torneios SET ativo = %s WHERE id = %s", (b.ativo, id))
+    return {"id": id, "ativo": b.ativo}
+
+
 @router.get("/{id}")
 async def estado(id: int):
     async with pool.connection() as conn:
@@ -215,12 +237,14 @@ async def inscrever(id: int, b: Auth):
         async with conn.transaction():
             if not await _auth(conn, b.cod_token, b.nick):
                 raise HTTPException(401, "cod_token ou nick inválidos.")
-            cur = await conn.execute("SELECT status, inscritos FROM torneios WHERE id = %s FOR UPDATE", (id,))
+            cur = await conn.execute("SELECT status, inscritos, ativo FROM torneios WHERE id = %s FOR UPDATE", (id,))
             t = await cur.fetchone()
             if not t:
                 raise HTTPException(404, "Torneio não existe.")
             if t[0] != "aberto":
                 raise HTTPException(409, "Inscrições encerradas.")
+            if not t[2]:
+                raise HTTPException(409, "Torneio desativado.")
             cur = await conn.execute(
                 "SELECT 1 FROM torneio_partidas WHERE torneio_id = %s AND ordem <= 4 AND (a = %s OR b = %s)",
                 (id, b.nick, b.nick),
