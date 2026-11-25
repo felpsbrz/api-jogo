@@ -6,12 +6,13 @@ from users import pool
 router = APIRouter(prefix="/torneios")
 
 PRAZO = 120
-LIMITE_PARTIDA = 1200
+LIMITE_PARTIDA = 300
 
 SQL_ESTADO = """
 SELECT t.nome, t.premio, t.criador, t.status, t.vencedor, t.atual, t.inscritos,
        p.ordem, p.a, p.b, p.vencedor, p.pronto_a, p.pronto_b,
-       COALESCE(EXTRACT(EPOCH FROM NOW() - p.inicio), 0)::float, t.ativo
+       COALESCE(EXTRACT(EPOCH FROM NOW() - p.inicio), 0)::float, t.ativo,
+       COALESCE(EXTRACT(EPOCH FROM NOW() - p.inicio_jogo), 0)::float, p.inicio_jogo IS NOT NULL
 FROM torneios t JOIN torneio_partidas p ON p.torneio_id = t.id
 WHERE t.id = %s ORDER BY p.ordem
 """
@@ -64,6 +65,11 @@ async def init_torneio():
             PRIMARY KEY (torneio_id, ordem)
         )
         """)
+        await conn.execute("ALTER TABLE torneio_partidas ADD COLUMN IF NOT EXISTS inicio_jogo TIMESTAMPTZ")
+        await conn.execute(
+            "UPDATE torneio_partidas SET inicio_jogo = inicio "
+            "WHERE pronto_a AND pronto_b AND inicio_jogo IS NULL AND vencedor IS NULL"
+        )
 
 
 def _fase_chave(ordem):
@@ -94,36 +100,49 @@ async def _ler(conn, id):
     t = rows[0]
     atual = t[5]
     decorrido = 0.0
+    decorrido_jogo = 0.0
+    jogando = False
     partidas = []
     for r in rows:
         fase, chave = _fase_chave(r[7])
         partidas.append({
             "ordem": r[7], "fase": fase, "chave": chave,
             "a": r[8] or "", "b": r[9] or "", "vencedor": r[10] or "",
-            "pronto_a": r[11], "pronto_b": r[12],
+            "pronto_a": r[11], "pronto_b": r[12], "jogando": r[16],
             "sala": f"torneio_{id}_fase_{fase}_chave_{chave}",
         })
         if r[7] == atual:
             decorrido = r[13]
+            decorrido_jogo = r[15]
+            jogando = r[16]
     andamento = t[3] == "andamento"
+    if not andamento:
+        fase, restante = "", 0
+    elif jogando:
+        fase, restante = "jogando", max(0, int(LIMITE_PARTIDA - decorrido_jogo))
+    else:
+        fase, restante = "aceitar", max(0, int(PRAZO - decorrido))
     return {
         "id": id, "nome": t[0], "premio": t[1], "criador": t[2], "status": t[3],
         "vencedor": t[4] or "", "atual": atual, "inscritos": t[6],
-        "restante": max(0, int(PRAZO - decorrido)) if andamento else 0,
-        "decorrido": decorrido, "partidas": partidas, "ativo": t[14],
+        "restante": restante, "fase_atual": fase,
+        "decorrido": decorrido, "decorrido_jogo": decorrido_jogo, "partidas": partidas, "ativo": t[14],
     }
 
 
-def _por_tempo(p, decorrido):
-    if p["vencedor"] or decorrido < PRAZO:
+def _por_tempo(e):
+    p = e["partidas"][e["atual"] - 1]
+    if p["vencedor"]:
+        return None
+    if p["jogando"]:
+        return p["a"] if e["decorrido_jogo"] >= LIMITE_PARTIDA else None
+    if e["decorrido"] < PRAZO:
         return None
     if p["pronto_a"] and not p["pronto_b"]:
         return p["a"]
     if p["pronto_b"] and not p["pronto_a"]:
         return p["b"]
-    if (not p["pronto_a"] and not p["pronto_b"]) or decorrido >= LIMITE_PARTIDA:
-        return p["a"]
-    return None
+    return p["a"]
 
 
 async def _definir(conn, id, e, vencedor):
@@ -153,7 +172,7 @@ async def _definir(conn, id, e, vencedor):
 async def _sincronizar(conn, id):
     e = await _ler(conn, id)
     if e and e["status"] == "andamento":
-        v = _por_tempo(e["partidas"][e["atual"] - 1], e["decorrido"])
+        v = _por_tempo(e)
         if v:
             await _definir(conn, id, e, v)
             e = await _ler(conn, id)
@@ -224,7 +243,7 @@ async def estado(id: int):
         e = await _ler(conn, id)
         if not e:
             raise HTTPException(404, "Torneio não existe.")
-        if e["status"] == "andamento" and _por_tempo(e["partidas"][e["atual"] - 1], e["decorrido"]):
+        if e["status"] == "andamento" and _por_tempo(e):
             async with conn.transaction():
                 if await _travar(conn, id):
                     e = await _sincronizar(conn, id)
@@ -280,8 +299,12 @@ async def pronto(id: int, b: Auth):
             if b.nick not in (p["a"], p["b"]):
                 raise HTTPException(409, "Não é a sua vez.")
             col = "pronto_a" if b.nick == p["a"] else "pronto_b"
+            outro = "pronto_b" if col == "pronto_a" else "pronto_a"
             await conn.execute(
-                f"UPDATE torneio_partidas SET {col} = TRUE WHERE torneio_id = %s AND ordem = %s", (id, p["ordem"])
+                f"UPDATE torneio_partidas SET {col} = TRUE, "
+                f"inicio_jogo = CASE WHEN {outro} AND inicio_jogo IS NULL THEN NOW() ELSE inicio_jogo END "
+                "WHERE torneio_id = %s AND ordem = %s",
+                (id, p["ordem"]),
             )
     return {"sala": p["sala"], "ordem": p["ordem"]}
 
